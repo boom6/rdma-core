@@ -418,7 +418,11 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		if (use_dm) {
 			struct ibv_alloc_dm_attr dm_attr = {};
 
-			if (!attrx.max_dm_size) {
+			/*
+			$ ./ibv_devinfo -v | grep "device memory"
+			maximum available device memory:	262144Bytes
+			*/
+			if (!attrx.max_dm_size) { 
 				fprintf(stderr, "Device doesn't support dm allocation\n");
 				goto clean_pd;
 			}
