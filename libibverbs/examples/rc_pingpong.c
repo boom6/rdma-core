@@ -56,9 +56,9 @@ enum {
 };
 
 static int page_size;
-static int use_odp;
-static int implicit_odp;
-static int prefetch_mr;
+static int use_odp;        // 是否使用显式ODP (On-Demand Paging) 按需分页
+static int implicit_odp;   // 是否使用隐式ODP，注册整个虚拟地址空间
+static int prefetch_mr;    // 是否预取内存页面，避免运行时页面错误
 static int use_ts;
 static int validate_buf;
 static int use_dm;
@@ -375,27 +375,35 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		goto clean_comp_channel;
 	}
 
+	// 检查设备是否支持高级特性：ODP、时间戳、设备内存
 	if (use_odp || use_ts || use_dm) {
+		// 定义RC传输类型需要支持的ODP能力：发送和接收
 		const uint32_t rc_caps_mask = IBV_ODP_SUPPORT_SEND |
 					      IBV_ODP_SUPPORT_RECV;
 		struct ibv_device_attr_ex attrx;
 
+		// 查询设备的扩展属性，包括ODP能力
 		if (ibv_query_device_ex(ctx->context, NULL, &attrx)) {
 			fprintf(stderr, "Couldn't query device for its features\n");
 			goto clean_pd;
 		}
 
+		// ODP能力检查
 		if (use_odp) {
+			// 检查设备是否支持ODP基本功能
 			if (!(attrx.odp_caps.general_caps & IBV_ODP_SUPPORT) ||
+			    // 检查RC传输是否支持ODP的发送和接收操作
 			    (attrx.odp_caps.per_transport_caps.rc_odp_caps & rc_caps_mask) != rc_caps_mask) {
 				fprintf(stderr, "The device isn't ODP capable or does not support RC send and receive with ODP\n");
 				goto clean_pd;
 			}
+			// 检查是否支持隐式ODP（注册整个虚拟地址空间）
 			if (implicit_odp &&
 			    !(attrx.odp_caps.general_caps & IBV_ODP_SUPPORT_IMPLICIT)) {
 				fprintf(stderr, "The device doesn't support implicit ODP\n");
 				goto clean_pd;
 			}
+			// 设置按需分页访问标志，启用ODP功能
 			access_flags |= IBV_ACCESS_ON_DEMAND;
 		}
 
@@ -431,11 +439,24 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		}
 	}
 
+	// 根据ODP模式选择内存注册方式
 	if (implicit_odp) {
+		/*
+		隐式ODP：注册整个虚拟地址空间，不预先分配物理内存
+		物理内存在实际访问时按需分配，适合处理大数据集
+		特点：
+		可以传入NULL：表示不预先绑定特定的虚拟地址
+		使用SIZE_MAX：表示注册整个虚拟地址空间
+		动态地址绑定：可以在运行时绑定任意的虚拟地址
+		最大灵活性：支持任意大小的内存区域
+		*/
 		ctx->mr = ibv_reg_mr(ctx->pd, NULL, SIZE_MAX, access_flags);
 	} else {
+		// 显式ODP或传统内存注册
 		ctx->mr = use_dm ? ibv_reg_dm_mr(ctx->pd, ctx->dm, 0,
 						 size, access_flags) :
+			// 注册特定虚拟地址范围，ODP模式下物理内存按需分配。
+			// 由于指定了 buff和size，因此只能在这个特定的地址范围内进行RDMA操作。
 			ibv_reg_mr(ctx->pd, ctx->buf, size, access_flags);
 	}
 
@@ -444,14 +465,32 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		goto clean_dm;
 	}
 
+	// ODP内存预取功能：避免运行时页面错误导致的延迟
+	// 如果不预取，性能会很低。
+	/*
+	$ ./ibv_rc_pingpong -s 1024 -n 1000 -O -P
+	local address:  LID 0x0001, QPN 0x000048, PSN 0x071457, GID ::
+	remote address: LID 0x0001, QPN 0x000049, PSN 0xb7a385, GID ::
+	2048000 bytes in 0.01 seconds = 3116.01 Mbit/sec
+	1000 iters in 0.01 seconds = 5.26 usec/iter
+	$ ./ibv_rc_pingpong -s 1024 -n 1000 -O
+	local address:  LID 0x0001, QPN 0x00004b, PSN 0xba2a70, GID ::
+	remote address: LID 0x0001, QPN 0x00004c, PSN 0x503b4a, GID ::
+	2048000 bytes in 0.02 seconds = 1044.96 Mbit/sec
+	1000 iters in 0.02 seconds = 15.68 usec/iter
+	*/
 	if (prefetch_mr) {
 		struct ibv_sge sg_list;
 		int ret;
 
-		sg_list.lkey = ctx->mr->lkey;
-		sg_list.addr = (uintptr_t)ctx->buf;
-		sg_list.length = size;
+		// 设置要预取的内存区域信息
+		sg_list.lkey = ctx->mr->lkey;           // 内存区域的本地键
+		sg_list.addr = (uintptr_t)ctx->buf;     // 虚拟地址
+		sg_list.length = size;                  // 预取长度
 
+		// 预取内存页面到物理内存，避免首次访问时的页面错误
+		// IBV_ADVISE_MR_ADVICE_PREFETCH_WRITE: 预取用于写入的页面
+		// IB_UVERBS_ADVISE_MR_FLAG_FLUSH: 确保预取操作完成
 		ret = ibv_advise_mr(ctx->pd, IBV_ADVISE_MR_ADVICE_PREFETCH_WRITE,
 				    IB_UVERBS_ADVISE_MR_FLAG_FLUSH,
 				    &sg_list, 1);
@@ -802,7 +841,7 @@ int main(int argc, char *argv[])
 	unsigned int             port = 18515;
 	int                      ib_port = 1;
 	unsigned int             size = 4096;
-	enum ibv_mtu		 mtu = IBV_MTU_1024;
+	enum ibv_mtu		 mtu = IBV_MTU_1024;// 可以改成 IBV_MTU_4096
 	unsigned int             rx_depth = 500;
 	unsigned int             iters = 1000;
 	int                      use_event = 0;
@@ -938,11 +977,13 @@ int main(int argc, char *argv[])
 	}
 
 	if (use_odp && use_dm) {
+		// ODP和设备内存不能同时使用：ODP需要虚拟内存管理，设备内存是物理内存
 		fprintf(stderr, "DM memory region can't be on demand\n");
 		return 1;
 	}
 
 	if (!use_odp && prefetch_mr) {
+		// 预取功能只能与ODP一起使用：只有ODP才需要预取物理内存页面
 		fprintf(stderr, "prefetch is valid only with on-demand memory region\n");
 		return 1;
 	}
@@ -957,6 +998,7 @@ int main(int argc, char *argv[])
 	}
 
 	page_size = sysconf(_SC_PAGESIZE);
+	// printf("page_size: %d\n", page_size); // 4096
 
 	dev_list = ibv_get_device_list(NULL);
 	if (!dev_list) {
