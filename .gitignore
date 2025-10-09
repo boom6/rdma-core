@@ -12,6 +12,7 @@ lib*.a
 Makefile
 .vscode/**
 .specstory
+compile_commands.json
 
 # Tags
 TAGS

@@ -64,27 +64,52 @@ cd "$BUILDDIR"
 
 # 根据构建类型设置不同的编译参数
 if [ "$BUILD_TYPE" = "Release" ]; then
-    CMAKE_EXTRA_ARGS="-DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE:--O2 -s} \
-                      -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE:--O2 -s} \
+    CMAKE_EXTRA_ARGS="-DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE:--O2} \
+                      -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE:--O2} \
                       -DCMAKE_EXE_LINKER_FLAGS_RELEASE=${CMAKE_EXE_LINKER_FLAGS_RELEASE:--Wl,-s} \
-                      -DCMAKE_SHARED_LINKER_FLAGS_RELEASE=${CMAKE_SHARED_LINKER_FLAGS_RELEASE:--Wl,-s} \
-                      -DCMAKE_INSTALL_DO_STRIP=TRUE"
+                      -DCMAKE_SHARED_LINKER_FLAGS_RELEASE=${CMAKE_SHARED_LINKER_FLAGS_RELEASE:--Wl,-s}"
 else
     # Debug 模式，保留调试信息
-    CMAKE_EXTRA_ARGS="-DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG:--g -O0} \
-                      -DCMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG:--g -O0}"
+    CMAKE_EXTRA_ARGS="-DCMAKE_C_FLAGS_DEBUG=\"-g -O0\" \
+                      -DCMAKE_CXX_FLAGS_DEBUG=\"-g -O0\""
 fi
 
+# 没有 ninja：使用传统的 make 构建系统，有 ninja：使用更快的 ninja 构建系统
 if [ "x$NINJA" == "x" ]; then
-    $CMAKE -DIN_PLACE=1 \
-        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-        ${CMAKE_EXTRA_ARGS} \
-        ${EXTRA_CMAKE_FLAGS:-} ..
+    if [ "$BUILD_TYPE" = "Release" ]; then
+        $CMAKE -DIN_PLACE=1 \
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+            ${CMAKE_EXTRA_ARGS} \
+            ${EXTRA_CMAKE_FLAGS:-} ..
+    else
+        $CMAKE -DIN_PLACE=1 \
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+            -DCMAKE_C_FLAGS_DEBUG="-g -O0" \
+            -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
+            ${EXTRA_CMAKE_FLAGS:-} ..
+    fi
     make
 else 
-    $CMAKE -DIN_PLACE=1 -GNinja \
-        -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-        ${CMAKE_EXTRA_ARGS} \
-        ${EXTRA_CMAKE_FLAGS:-} ..
+    if [ "$BUILD_TYPE" = "Release" ]; then
+        $CMAKE -DIN_PLACE=1 -GNinja \
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+            ${CMAKE_EXTRA_ARGS} \
+            ${EXTRA_CMAKE_FLAGS:-} ..
+    else
+        $CMAKE -DIN_PLACE=1 -GNinja \
+            -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+            -DCMAKE_C_FLAGS_DEBUG="-g -O0" \
+            -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
+            ${EXTRA_CMAKE_FLAGS:-} ..
+    fi
     $NINJA
 fi
+
+# 创建符号链接到项目根目录，方便Cursor找到compile_commands.json
+cd "$SRCDIR"
+ln -sf build/compile_commands.json compile_commands.json
+echo "has created compile_commands.json symlink"
