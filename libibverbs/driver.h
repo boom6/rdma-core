@@ -445,7 +445,9 @@ struct verbs_context_ops {
 	void (*unimport_dm)(struct ibv_dm *dm);
 	void (*unimport_mr)(struct ibv_mr *mr);
 	void (*unimport_pd)(struct ibv_pd *pd);
+	uint64_t (*has_custom_features)(void);
 	int	(*devx_post_send)(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info);
+	void *(*get_blueflame)(struct ibv_qp *qp);
 };
 
 static inline struct verbs_device *

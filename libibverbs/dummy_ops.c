@@ -491,9 +491,19 @@ static void unimport_pd(struct ibv_pd *pd)
 {
 }
 
+static uint64_t has_custom_features(void)
+{
+	return EOPNOTSUPP;
+}
+
 static int	devx_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info)
 {
 	return EOPNOTSUPP;
+}
+
+static void *get_blueflame(struct ibv_qp *qp)
+{
+	return NULL;
 }
 
 /*
@@ -584,7 +594,9 @@ const struct verbs_context_ops verbs_dummy_ops = {
 	unimport_dm,
 	unimport_mr,
 	unimport_pd,
+	has_custom_features,
 	devx_post_send,
+	get_blueflame,
 };
 
 /*
@@ -710,8 +722,10 @@ void verbs_set_ops(struct verbs_context *vctx,
 	SET_PRIV_OP_IC(vctx, unimport_dm);
 	SET_PRIV_OP_IC(vctx, unimport_mr);
 	SET_PRIV_OP_IC(vctx, unimport_pd);
+	SET_OP(ctx, has_custom_features);
 	SET_OP(ctx, devx_post_send);
-
+	SET_OP(ctx, get_blueflame);
+	
 #undef SET_OP
 #undef SET_OP2
 }

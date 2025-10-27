@@ -2044,7 +2044,9 @@ struct ibv_context_ops {
 	void *(*_compat_attach_mcast)(void);
 	void *(*_compat_detach_mcast)(void);
 	void *(*_compat_async_event)(void);
+	uint64_t (*has_custom_features)(void);
 	int	(*devx_post_send)(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info);
+	void *(*get_blueflame)(struct ibv_qp *qp);
 };
 
 struct ibv_context {
@@ -3582,12 +3584,35 @@ int ibv_set_ece(struct ibv_qp *qp, struct ibv_ece *ece);
 int ibv_query_ece(struct ibv_qp *qp, struct ibv_ece *ece);
 
 /**
+ * ibv_has_custom_features - Check if the current verbs library has custom features
+ * Returns 1 if this is a Lynxi custom version, 0 otherwise
+ */
+ static inline int ibv_has_custom_features(struct ibv_context *context)
+ {
+	 if (!context)
+		 return 0;
+	 
+	 /* 检查函数指针的地址是否为魔数 */
+	 return ((uint64_t)context->ops.has_custom_features == 0x4C594E58494D4147ULL);
+ }
+
+/**
  * ibv_devx_post_send - Post a list of work requests to a send queue but not trigger doorbell.
  */
 static inline int ibv_devx_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr,
 				struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info)
 {
 	return qp->context->ops.devx_post_send(qp, wr, bad_wr, devx_info);
+}
+
+/**
+ * ibv_get_blueflame - Get the blueflame pointer from the QP
+ * @qp: QP to get the blueflame pointer from
+ * @return: The blueflame pointer
+ */
+static inline void *ibv_get_blueflame(struct ibv_qp *qp)
+{
+	return qp->context->ops.get_blueflame(qp);
 }
 
 #ifdef __cplusplus

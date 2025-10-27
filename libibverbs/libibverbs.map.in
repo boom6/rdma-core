@@ -163,6 +163,8 @@ IBVERBS_1.14 {
 	global:
 		ibv_query_qp_data_in_order;
 		ibv_devx_post_send;
+		ibv_has_custom_features;
+		ibv_get_blueflame;
 } IBVERBS_1.13;
 
 /* If any symbols in this stanza change ABI then the entire staza gets a new symbol

@@ -1315,6 +1315,7 @@ void mlx5_set_singleton_nc_uar(struct ibv_context *context);
 
 int mlx5_set_ece(struct ibv_qp *qp, struct ibv_ece *ece);
 int	mlx5_devx_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info);
+void *mlx5_get_blueflame(struct ibv_qp *qp);
 int mlx5_query_ece(struct ibv_qp *qp, struct ibv_ece *ece);
 
 struct mlx5_psv *mlx5_create_psv(struct ibv_pd *pd);

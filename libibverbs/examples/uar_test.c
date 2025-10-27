@@ -127,6 +127,7 @@ struct resources
 ops */
 	int sock;						   /* TCP socket file descriptor */
 	char sync[2];
+	void *bf;
 };
 struct config_t config = {
 	NULL,  /* dev_name */
@@ -682,6 +683,16 @@ static int resources_create(struct resources *res)
 		}
 	}
 	logi("QP was created, QP number=0x%x", res->qp->qp_num);
+
+	if (ibv_has_custom_features(res->ib_ctx)) {
+		res->bf = ibv_get_blueflame(res->qp);
+		if (!res->bf) {
+			loge("failed to get BF");
+			rc = 1;
+			goto resources_create_exit;
+		}
+		logi("BF was got, BF address=%p", res->bf);
+	}
 
 resources_create_exit:
 	if (rc)
