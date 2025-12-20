@@ -31,11 +31,11 @@ struct resources
 	struct ibv_mr *mr;                   /* MR句柄 */
 	char *buf;                           /* 内存缓冲区指针 */
 	uint32_t max_inline_data;            /* 最大inline数据大小 */
-	void *bf;                            /* Blueflame指针 */
-	struct ibv_devx_qp_info qp_info;     /* QP信息（用于手动构建WQE） */
+	struct mlx5dv_qp mlx5dv_qp;          /* QP信息（标准API，用于手动构建WQE） */
+	struct mlx5dv_cq mlx5dv_cq;          /* CQ信息（标准API，用于手动poll CQ） */
 	uint32_t sq_cur_post;                /* 当前SQ producer index */
-	struct ibv_devx_cq_info cq_info;     /* CQ信息（用于手动poll CQ） */
 	uint32_t cq_cons_index;              /* 当前CQ consumer index */
+	uint32_t bf_offset;                  /* Blueflame offset（自行维护，初始值为0） */
 };
 
 /* 配置结构体 */
@@ -289,15 +289,15 @@ static int manual_poll_cq(struct resources *res, struct ibv_wc *wc)
 	 * - 由于 cqe_cnt 是 2 的幂，& 操作等价于 % 操作，但更高效
 	 * - 地址 = 基地址 + 索引 × CQE 大小
 	 */
-	cqe_idx = res->cq_cons_index & (res->cq_info.cqe_cnt - 1);
-	cqe = (char *)res->cq_info.cq_buf + (cqe_idx * res->cq_info.cqe_size);
+	cqe_idx = res->cq_cons_index & (res->mlx5dv_cq.cqe_cnt - 1);
+	cqe = (char *)res->mlx5dv_cq.buf + (cqe_idx * res->mlx5dv_cq.cqe_size);
 	
 	/* 
 	 * 步骤2：获取 CQE64 结构体指针
 	 * - 64 字节 CQE：CQE64 从偏移 0 开始
 	 * - 128 字节 CQE：前 64 字节为压缩/扩展信息，CQE64 从偏移 64 开始
 	 */
-	cqe64 = (res->cq_info.cqe_size == 64) ? (struct mlx5_cqe64 *)cqe : 
+	cqe64 = (res->mlx5dv_cq.cqe_size == 64) ? (struct mlx5_cqe64 *)cqe : 
 		(struct mlx5_cqe64 *)((char *)cqe + 64);
 	
 	/* 
@@ -326,7 +326,7 @@ static int manual_poll_cq(struct resources *res, struct ibv_wc *wc)
 	 * - 当 producer_index >= consumer_index 且在同一 polarity 区间时匹配
 	 */
 	uint8_t owner = mlx5dv_get_cqe_owner(cqe64);
-	uint8_t expected_owner = !!(res->cq_cons_index & res->cq_info.cqe_cnt);
+	uint8_t expected_owner = !!(res->cq_cons_index & res->mlx5dv_cq.cqe_cnt);
 	if (owner != expected_owner) {
 		return 0;  /* CQ为空或这是旧数据 */
 	}
@@ -429,7 +429,7 @@ static int manual_poll_cq(struct resources *res, struct ibv_wc *wc)
 	 * - & 0xffffff：只取低 24 位（硬件限制）
 	 * - htobe32：转换为大端字节序（网络字节序）
 	 */
-	res->cq_info.dbrec[MLX5_CQ_SET_CI] = htobe32(res->cq_cons_index & 0xffffff);
+	res->mlx5dv_cq.dbrec[MLX5_CQ_SET_CI] = htobe32(res->cq_cons_index & 0xffffff);
 	
 	return 1;  /* 成功读取一个CQE */
 }
@@ -657,43 +657,50 @@ static int resources_create(struct resources *res)
 	}
 	logi("QP was created, QP number=0x%x", res->qp->qp_num);
 
-	/* 获取Blueflame指针和QP信息（如果支持） */
-	if (ibv_has_custom_features(res->ib_ctx)) {
-		res->bf = ibv_get_blueflame(res->qp);
-		if (!res->bf) {
-			loge("failed to get BF");
-			rc = 1;
-			goto resources_create_exit;
-		}
-		logi("BF was got, BF address=%p", res->bf);
+	/* 使用标准 mlx5dv API 获取 QP 和 CQ 信息 */
+	{
+		struct mlx5dv_obj obj = {0};
+		struct mlx5dv_qp mlx5dv_qp = {0};
+		struct mlx5dv_cq mlx5dv_cq = {0};
 		
-		/* 获取QP信息用于手动构建WQE */
-		if (ibv_devx_get_qp_info(res->qp, &res->qp_info)) {
-			loge("failed to get QP info");
+		/* 设置输入对象 */
+		obj.qp.in = res->qp;
+		obj.cq.in = res->cq;
+		
+		/* 设置输出对象指针（需要先分配结构体） */
+		obj.qp.out = &mlx5dv_qp;
+		obj.cq.out = &mlx5dv_cq;
+		
+		/* 使用标准 API 初始化对象 */
+		if (mlx5dv_init_obj(&obj, MLX5DV_OBJ_QP | MLX5DV_OBJ_CQ)) {
+			loge("failed to initialize mlx5dv objects");
 			rc = 1;
 			goto resources_create_exit;
 		}
+		
+		/* 保存 QP 和 CQ 信息 */
+		res->mlx5dv_qp = mlx5dv_qp;
+		res->mlx5dv_cq = mlx5dv_cq;
+		
+		/* 初始化状态变量 */
 		res->sq_cur_post = 0;  /* 初始化SQ producer index */
-		logi("QP info: bf_base=%p, sq_start=%p, wqe_cnt=%u, wqe_stride=%u, qp_num=0x%x, bf_offset=0x%x, bf_buf_size=0x%x",
-		     res->qp_info.bf_base, res->qp_info.sq_start, res->qp_info.wqe_cnt,
-		     res->qp_info.wqe_stride, res->qp_info.qp_num, res->qp_info.bf_offset, res->qp_info.bf_buf_size);
+		res->cq_cons_index = 0;  /* 初始化CQ consumer index */
+		res->bf_offset = 0;  /* 初始化 Blueflame offset（标准 API 不提供，需要自行维护） */
 		
-		/* 获取CQ信息用于手动poll CQ */
-		if (ibv_devx_get_cq_info(res->cq, &res->cq_info)) {
-			loge("failed to get CQ info");
+		logi("QP info (standard API): bf.reg=%p, bf.size=%u, sq.buf=%p, sq.wqe_cnt=%u, sq.stride=%u, qp_num=0x%x",
+		     res->mlx5dv_qp.bf.reg, res->mlx5dv_qp.bf.size, res->mlx5dv_qp.sq.buf,
+		     res->mlx5dv_qp.sq.wqe_cnt, res->mlx5dv_qp.sq.stride, res->qp->qp_num);
+		logi("CQ info (standard API): cq_buf=%p, dbrec=%p, cqe_cnt=%u, cqe_size=%u, cqn=0x%x",
+		     res->mlx5dv_cq.buf, res->mlx5dv_cq.dbrec, res->mlx5dv_cq.cqe_cnt,
+		     res->mlx5dv_cq.cqe_size, res->mlx5dv_cq.cqn);
+		
+		/* 检查是否支持 Blueflame */
+		if (!res->mlx5dv_qp.bf.reg || res->mlx5dv_qp.bf.size == 0) {
+			logw("device does not support blueflame (bf.reg=%p, bf.size=%u)", 
+			     res->mlx5dv_qp.bf.reg, res->mlx5dv_qp.bf.size);
 			rc = 1;
 			goto resources_create_exit;
 		}
-		res->cq_cons_index = 0;  /* 初始化CQ consumer index */
-		logi("CQ info: cq_buf=%p, dbrec=%p, cqe_cnt=%u, cqe_size=%u, cqn=0x%x",
-		     res->cq_info.cq_buf, res->cq_info.dbrec, res->cq_info.cqe_cnt,
-		     res->cq_info.cqe_size, res->cq_info.cqn);
-	} else {
-		logw("device does not support custom features (blueflame)");
-		res->bf = NULL;
-		memset(&res->qp_info, 0, sizeof(res->qp_info));
-		res->sq_cur_post = 0;
-		return -1;
 	}
 
 resources_create_exit:
@@ -897,19 +904,19 @@ static int local_write(struct resources *res)
 	lkey = res->mr->lkey;
 	
 	/* 检查是否支持blueflame */
-	if (!res->bf) {
+	if (!res->mlx5dv_qp.bf.reg || res->mlx5dv_qp.bf.size == 0) {
 		loge("device does not support blueflame (doorbell), cannot proceed");
 		return -1;
 	}
 	
 	/* 
 	 * 手动构建WQE segment
-	 * 使用预先获取的QP信息来计算WQE地址和doorbell地址
+	 * 使用标准 API 获取的 QP 信息来计算 WQE 地址和 doorbell 地址
 	 */
 	{
-		/* 计算当前WQE地址：sq_start + (cur_post % wqe_cnt) * wqe_stride */
-		uint32_t wqe_idx = res->sq_cur_post % res->qp_info.wqe_cnt;
-		wqe = (char *)res->qp_info.sq_start + (wqe_idx * res->qp_info.wqe_stride);
+		/* 计算当前WQE地址：sq.buf + (cur_post % wqe_cnt) * stride */
+		uint32_t wqe_idx = res->sq_cur_post % res->mlx5dv_qp.sq.wqe_cnt;
+		wqe = (char *)res->mlx5dv_qp.sq.buf + (wqe_idx * res->mlx5dv_qp.sq.stride);
 		pi = res->sq_cur_post & 0xffff;  /* 只取低16位 */
 		
 		logi("Calculated WQE address: wqe=%p, idx=%u, pi=%u", wqe, wqe_idx, pi);
@@ -949,17 +956,18 @@ static int local_write(struct resources *res)
 	/* 确保内存写入完成（使用内存屏障） */
 	__sync_synchronize();
 	
-	/* 计算doorbell地址：bf_base + bf_offset */
-	void *bf_addr = (char *)res->qp_info.bf_base + res->qp_info.bf_offset;
+	/* 计算doorbell地址：bf.reg + bf_offset（使用自行维护的 bf_offset） */
+	void *bf_addr = (char *)res->mlx5dv_qp.bf.reg + res->bf_offset;
 	
 	/* 通过doorbell触发通信 */
 	*((volatile uint64_t *)bf_addr) = *(uint64_t *)ctrl;
-	logi("doorbell triggered: bf_addr=%p, ctrl=%p", bf_addr, ctrl);
+	logi("doorbell triggered: bf_addr=%p (bf.reg=%p, bf_offset=0x%x), ctrl=%p", 
+	     bf_addr, res->mlx5dv_qp.bf.reg, res->bf_offset, ctrl);
 	
 	/* 更新SQ producer index（用于下次计算WQE地址） */
 	res->sq_cur_post++;
-	/* 更新bf_offset（通过异或实现索引环绕） */
-	res->qp_info.bf_offset ^= res->qp_info.bf_buf_size;
+	/* 更新bf_offset（通过异或实现索引环绕，标准 API 不提供，需要自行维护） */
+	res->bf_offset ^= res->mlx5dv_qp.bf.size;
 	
 	if (poll_completion(res)) {
 		loge("local write: poll completion failed");

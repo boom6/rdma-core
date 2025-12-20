@@ -23,6 +23,9 @@ target_link_libraries(uar_test LINK_PRIVATE ibverbs ibverbs_tools pthread dl)
 rdma_executable(manual_trigger manual_trigger.c)
 target_link_libraries(manual_trigger LINK_PRIVATE ibverbs)
 
+rdma_executable(mlx5dv_manual_trigger mlx5dv_manual_trigger.c)
+target_link_libraries(mlx5dv_manual_trigger LINK_PRIVATE ibverbs mlx5)
+
 rdma_executable(ibv_rc_pingpong rc_pingpong.c)
 target_link_libraries(ibv_rc_pingpong LINK_PRIVATE ibverbs ibverbs_tools)
 
