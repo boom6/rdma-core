@@ -67,6 +67,24 @@ struct ibv_devx_info {
 	void *ctrl;
 };
 
+struct ibv_devx_qp_info {
+	void *bf_base;        /* 门铃寄存器基地址 */
+	void *sq_start;       /* SQ起始地址（WQE起始地址） */
+	uint32_t wqe_cnt;     /* WQE数量 */
+	uint32_t wqe_stride;  /* WQE步长（字节） */
+	uint32_t qp_num;      /* QP号 */
+	uint32_t bf_offset;   /* 当前bf offset（用于计算实际bf地址） */
+	uint32_t bf_buf_size; /* bf buffer大小 */
+};
+
+struct ibv_devx_cq_info {
+	void *cq_buf;         /* CQ缓冲区起始地址 */
+	__be32 *dbrec;        /* Doorbell记录地址 */
+	uint32_t cqe_cnt;     /* CQE数量（实际是 cqe + 1） */
+	uint32_t cqe_size;    /* CQE大小（64或128字节） */
+	uint32_t cqn;         /* CQ号 */
+};
+
 union ibv_gid {
 	uint8_t			raw[16];
 	struct {
@@ -2047,6 +2065,8 @@ struct ibv_context_ops {
 	uint64_t (*has_custom_features)(void);
 	int	(*devx_post_send)(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info);
 	void *(*get_blueflame)(struct ibv_qp *qp);
+	int	(*devx_get_qp_info)(struct ibv_qp *qp, struct ibv_devx_qp_info *qp_info);
+	int	(*devx_get_cq_info)(struct ibv_cq *cq, struct ibv_devx_cq_info *cq_info);
 };
 
 struct ibv_context {
@@ -3613,6 +3633,32 @@ static inline int ibv_devx_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr,
 static inline void *ibv_get_blueflame(struct ibv_qp *qp)
 {
 	return qp->context->ops.get_blueflame(qp);
+}
+
+/**
+ * ibv_devx_get_qp_info - Get QP information for manual WQE construction
+ * @qp: QP to get information from
+ * @qp_info: Output parameter to store QP information
+ * @return: 0 on success, non-zero on error
+ */
+static inline int ibv_devx_get_qp_info(struct ibv_qp *qp, struct ibv_devx_qp_info *qp_info)
+{
+	if (!qp->context->ops.devx_get_qp_info)
+		return EOPNOTSUPP;
+	return qp->context->ops.devx_get_qp_info(qp, qp_info);
+}
+
+/**
+ * ibv_devx_get_cq_info - Get CQ information for manual CQE polling
+ * @cq: CQ to get information from
+ * @cq_info: Output parameter to store CQ information
+ * @return: 0 on success, non-zero on error
+ */
+static inline int ibv_devx_get_cq_info(struct ibv_cq *cq, struct ibv_devx_cq_info *cq_info)
+{
+	if (!cq->context->ops.devx_get_cq_info)
+		return EOPNOTSUPP;
+	return cq->context->ops.devx_get_cq_info(cq, cq_info);
 }
 
 #ifdef __cplusplus

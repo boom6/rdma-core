@@ -448,6 +448,8 @@ struct verbs_context_ops {
 	uint64_t (*has_custom_features)(void);
 	int	(*devx_post_send)(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr, struct ibv_devx_info* devx_info);
 	void *(*get_blueflame)(struct ibv_qp *qp);
+	int	(*devx_get_qp_info)(struct ibv_qp *qp, struct ibv_devx_qp_info *qp_info);
+	int	(*devx_get_cq_info)(struct ibv_cq *cq, struct ibv_devx_cq_info *cq_info);
 };
 
 static inline struct verbs_device *

@@ -20,6 +20,9 @@ rdma_executable(uar_test uar_test.c)
 target_compile_options(uar_test PRIVATE -O2)
 target_link_libraries(uar_test LINK_PRIVATE ibverbs ibverbs_tools pthread dl)
 
+rdma_executable(manual_trigger manual_trigger.c)
+target_link_libraries(manual_trigger LINK_PRIVATE ibverbs)
+
 rdma_executable(ibv_rc_pingpong rc_pingpong.c)
 target_link_libraries(ibv_rc_pingpong LINK_PRIVATE ibverbs ibverbs_tools)
 

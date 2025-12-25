@@ -176,6 +176,8 @@ static const struct verbs_context_ops mlx5_ctx_common_ops = {
 	.has_custom_features = (uint64_t (*)(void))0x4C594E58494D4147ULL,
 	.devx_post_send = mlx5_devx_post_send,
 	.get_blueflame = mlx5_get_blueflame,
+	.devx_get_qp_info = mlx5_devx_get_qp_info,
+	.devx_get_cq_info = mlx5_devx_get_cq_info,
 };
 
 static const struct verbs_context_ops mlx5_ctx_cqev1_ops = {

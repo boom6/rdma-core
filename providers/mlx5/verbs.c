@@ -2793,6 +2793,44 @@ void *mlx5_get_blueflame(struct ibv_qp *qp)
 	return reg;
 }
 
+int mlx5_devx_get_qp_info(struct ibv_qp *qp, struct ibv_devx_qp_info *qp_info)
+{
+	struct mlx5_qp *mlx5qp = to_mqp(qp);
+	
+	if (!mlx5qp->bf) {
+		return EOPNOTSUPP;
+	}
+	
+	/* 填充QP信息 */
+	qp_info->bf_base = mlx5qp->bf->reg;  /* 门铃寄存器基地址 */
+	qp_info->sq_start = mlx5qp->sq_start;  /* SQ起始地址 */
+	qp_info->wqe_cnt = mlx5qp->sq.wqe_cnt;  /* WQE数量 */
+	qp_info->wqe_stride = 1 << MLX5_SEND_WQE_SHIFT;  /* WQE步长（64字节） */
+	qp_info->qp_num = qp->qp_num;  /* QP号 */
+	qp_info->bf_offset = mlx5qp->bf->offset;  /* 当前bf offset */
+	qp_info->bf_buf_size = mlx5qp->bf->buf_size;  /* bf buffer大小 */
+	
+	return 0;
+}
+
+int mlx5_devx_get_cq_info(struct ibv_cq *cq, struct ibv_devx_cq_info *cq_info)
+{
+	struct mlx5_cq *mlx5cq = to_mcq(cq);
+	
+	if (!mlx5cq->active_buf) {
+		return EINVAL;
+	}
+	
+	/* 填充CQ信息 */
+	cq_info->cq_buf = mlx5cq->active_buf->buf;  /* CQ缓冲区起始地址 */
+	cq_info->dbrec = mlx5cq->dbrec;  /* Doorbell记录地址 */
+	cq_info->cqe_cnt = mlx5cq->verbs_cq.cq.cqe + 1;  /* CQE数量（实际是 cqe + 1） */
+	cq_info->cqe_size = mlx5cq->cqe_sz;  /* CQE大小（64或128字节） */
+	cq_info->cqn = mlx5cq->cqn;  /* CQ号 */
+	
+	return 0;
+}
+
 struct ibv_qp *mlx5_create_qp(struct ibv_pd *pd,
 			      struct ibv_qp_init_attr *attr)
 {

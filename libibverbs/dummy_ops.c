@@ -506,6 +506,16 @@ static void *get_blueflame(struct ibv_qp *qp)
 	return NULL;
 }
 
+static int devx_get_qp_info(struct ibv_qp *qp, struct ibv_devx_qp_info *qp_info)
+{
+	return EOPNOTSUPP;
+}
+
+static int devx_get_cq_info(struct ibv_cq *cq, struct ibv_devx_cq_info *cq_info)
+{
+	return EOPNOTSUPP;
+}
+
 /*
  * Ops in verbs_dummy_ops simply return an EOPNOTSUPP error code when called, or
  * do nothing. They are placed in the ops structures if the provider does not
@@ -597,6 +607,8 @@ const struct verbs_context_ops verbs_dummy_ops = {
 	has_custom_features,
 	devx_post_send,
 	get_blueflame,
+	devx_get_qp_info,
+	devx_get_cq_info,
 };
 
 /*
@@ -725,6 +737,8 @@ void verbs_set_ops(struct verbs_context *vctx,
 	SET_OP(ctx, has_custom_features);
 	SET_OP(ctx, devx_post_send);
 	SET_OP(ctx, get_blueflame);
+	SET_OP(ctx, devx_get_qp_info);
+	SET_OP(ctx, devx_get_cq_info);
 	
 #undef SET_OP
 #undef SET_OP2
