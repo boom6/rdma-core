@@ -855,38 +855,38 @@ enum mlx5dv_qp_comp_mask {
 };
 
 struct mlx5dv_qp {
-	__be32			*dbrec;
+	__be32			*dbrec;		/* Doorbell记录地址，用于更新SQ producer index */
 	struct {
-		void		*buf;
-		uint32_t	wqe_cnt;
-		uint32_t	stride;
+		void		*buf;		/* Send Queue缓冲区起始地址，用于手动构建WQE */
+		uint32_t	wqe_cnt;	/* SQ中WQE的数量（环形缓冲区大小） */
+		uint32_t	stride;		/* SQ中WQE的步长（字节），通常为64字节 */
 	} sq;
 	struct {
-		void		*buf;
-		uint32_t	wqe_cnt;
-		uint32_t	stride;
+		void		*buf;		/* Receive Queue缓冲区起始地址，用于手动构建WQE */
+		uint32_t	wqe_cnt;	/* RQ中WQE的数量（环形缓冲区大小） */
+		uint32_t	stride;		/* RQ中WQE的步长（字节） */
 	} rq;
 	struct {
-		void		*reg;
-		uint32_t	size;
+		void		*reg;		/* Blueflame寄存器基地址，用于手动触发doorbell */
+		uint32_t	size;		/* Blueflame缓冲区大小，用于计算offset环绕 */
 	} bf;
-	uint64_t		comp_mask;
-	off_t			uar_mmap_offset;
-	uint32_t		tirn;
-	uint32_t		tisn;
-	uint32_t		rqn;
-	uint32_t		sqn;
-	uint64_t		tir_icm_addr;
+	uint64_t		comp_mask;	/* 兼容性掩码，指示哪些可选字段有效 */
+	off_t			uar_mmap_offset; /* UAR内存映射偏移量（如果comp_mask包含MLX5DV_QP_MASK_UAR_MMAP_OFFSET） */
+	uint32_t		tirn;		/* Transport Interface Receive Number（如果comp_mask包含MLX5DV_QP_MASK_RAW_QP_HANDLES） */
+	uint32_t		tisn;		/* Transport Interface Send Number（如果comp_mask包含MLX5DV_QP_MASK_RAW_QP_HANDLES） */
+	uint32_t		rqn;		/* Receive Queue Number（如果comp_mask包含MLX5DV_QP_MASK_RAW_QP_HANDLES） */
+	uint32_t		sqn;		/* Send Queue Number（如果comp_mask包含MLX5DV_QP_MASK_RAW_QP_HANDLES） */
+	uint64_t		tir_icm_addr;	/* TIR ICM地址（如果comp_mask包含MLX5DV_QP_MASK_RAW_QP_TIR_ADDR） */
 };
 
 struct mlx5dv_cq {
-	void			*buf;
-	__be32			*dbrec;
-	uint32_t		cqe_cnt;
-	uint32_t		cqe_size;
-	void			*cq_uar;
-	uint32_t		cqn;
-	uint64_t		comp_mask;
+	void			*buf;		/* CQ缓冲区起始地址，用于手动poll CQE */
+	__be32			*dbrec;		/* Doorbell记录地址，用于更新CQ consumer index */
+	uint32_t		cqe_cnt;	/* CQE数量（环形缓冲区大小），实际值为创建时的cqe+1 */
+	uint32_t		cqe_size;	/* CQE大小（字节），通常为64或128字节 */
+	void			*cq_uar;	/* CQ UAR寄存器地址，用于激活CQ(arm CQ, 软件调用ibv_req_notify_cq).*/
+	uint32_t		cqn;		/* CQ Number，硬件分配的CQ标识符 */
+	uint64_t		comp_mask;	/* 兼容性掩码，指示哪些可选字段有效 */
 };
 
 enum mlx5dv_srq_comp_mask {
